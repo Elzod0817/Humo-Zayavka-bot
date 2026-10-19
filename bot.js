@@ -159,75 +159,64 @@ ${xeshteglar}
     }
 );
 
-// 4. Kalkulyator Wizard Scene (XARAJATLAR UCHUN)
+// 4. BIR QADAMLI AVTOMATIK KALKULYATOR WIZARD
 const calcWizard = new Scenes.WizardScene(
     'CALC_SCENE',
     (ctx) => {
-        ctx.reply('🧮 <b>Reys xarajatlarini hisoblash</b>\n\nYo\'nalish masofasini kiriting (km da):\n<i>(Masalan: 350)</i>', { parse_mode: 'HTML' });
-        return ctx.wizard.next();
-    },
-    (ctx) => {
-        const km = parseFloat(ctx.message.text);
-        if (isNaN(km) || km <= 0) {
-            ctx.reply("⚠️ Iltimos, faqat musbat raqam kiriting (Masalan: 350):");
-            return;
-        }
-        ctx.session.calcKm = km;
-        ctx.reply('⛽️ 100 km masofaga fura qancha dizel sarflaydi (litr)?\n<i>(Masalan: 32)</i>', { parse_mode: 'HTML' });
-        return ctx.wizard.next();
-    },
-    (ctx) => {
-        const sarf = parseFloat(ctx.message.text);
-        if (isNaN(sarf) || sarf <= 0) {
-            ctx.reply("⚠️ Iltimos, faqat musbat raqam kiriting (Masalan: 32):");
-            return;
-        }
-        ctx.session.calcSarf = sarf;
-        ctx.reply('💰 1 litr dizel narxini kiriting (so\'mda):\n<i>(Masalan: 13800)</i>', { parse_mode: 'HTML' });
-        return ctx.wizard.next();
-    },
-    (ctx) => {
-        const narx = parseFloat(ctx.message.text);
-        if (isNaN(narx) || narx <= 0) {
-            ctx.reply("⚠️ Iltimos, faqat musbat raqam kiriting (Masalan: 13800):");
-            return;
-        }
-        ctx.session.calcDizelNarx = narx;
-        ctx.reply('🛠 Yo\'l to\'lovlari, bojxona va boshqa qo\'shimcha xarajatlar summasini kiriting (so\'mda):\n<i>(Yo\'q bo\'lsa 0 deb yozing)</i>', { parse_mode: 'HTML' });
-        return ctx.wizard.next();
-    },
-    (ctx) => {
-        const qosimcha = parseFloat(ctx.message.text);
-        if (isNaN(qosimcha) || qosimcha < 0) {
-            ctx.reply("⚠️ Iltimos, nol yoki musbat raqam kiriting:");
-            return;
-        }
-        
-        const km = ctx.session.calcKm;
-        const sarf = ctx.session.calcSarf;
-        const dizelNarx = ctx.session.calcDizelNarx;
+        const routesKeyboard = Markup.keyboard([
+            ['Toshkent - Samarqand (300 km)', 'Toshkent - Andijon (350 km)'],
+            ['Toshkent - Buxoro (570 km)', 'Toshkent - Moskva (3300 km)'],
+            ['❌ Bekor qilish']
+        ]).resize();
 
-        const jamiLitr = Math.round((km / 100) * sarf);
-        const yoqilgiSumma = Math.round(jamiLitr * dizelNarx);
-        const tanNarx = yoqilgiSumma + qosimcha;
-        const tavsiyaNarx = Math.round(tanNarx * 1.15); // +15% marja
+        ctx.reply('🧮 <b>Reys xarajatlarini avtomatik hisoblash</b>\n\nMasofani km da yozing (masalan: <code>450</code>) yoki mashhur yo\'nalishlardan birini tanlang:', {
+            parse_mode: 'HTML',
+            ...routesKeyboard
+        });
+        return ctx.wizard.next();
+    },
+    (ctx) => {
+        const text = ctx.message.text;
+
+        if (text === '❌ Bekor qilish') {
+            ctx.reply('❌ Bekor qilindi.', mainMenu);
+            return ctx.scene.leave();
+        }
+
+        // Matn ichidan faqat raqamni ajratib olish (masalan, "Toshkent - Samarqand (300 km)" dan 300 ni oladi)
+        const matched = text.match(/\d+/);
+        if (!matched) {
+            ctx.reply("⚠️ Iltimos, masofani raqamda kiriting (masalan: 350) yoki pastdagi tugmalardan tanlang:");
+            return;
+        }
+
+        const km = parseFloat(matched[0]);
+        if (km <= 0) {
+            ctx.reply("⚠️ Masofa 0 dan katta bo'lishi kerak:");
+            return;
+        }
+
+        // STANDART HISOBLASH FORMULASI (Fura uchun)
+        const avgConsumptionPer100km = 32; // 100 km ga 32 litr
+        const avgDieselPrice = 13800;      // 1 litr dizel o'rtacha narxi (so'm)
+        const overheadFactor = 1.20;       // +20% (yo'l to'lovlari, amortizatsiya va amortizatsiya xarajatlari)
+
+        const jamiLitr = Math.round((km / 100) * avgConsumptionPer100km);
+        const yoqilgiSumma = Math.round(jamiLitr * avgDieselPrice);
+        const taxminiyTavsiyaNarx = Math.round(yoqilgiSumma * overheadFactor);
 
         const hisobot = `
-📊 <b>REYS XARAJATLARI HISOBOTI</b>
+📊 <b>TAXMINIY REYS XARAJATLARI VA NARXI</b>
 
-📍 Yo'nalish masofasi: <b>${km} km</b>
-⛽️ Jami yoqilg'i hajm: <b>${jamiLitr} litr</b>
-💰 Yoqilg'i xarajati: <b>${yoqilgiSumma.toLocaleString('uz-UZ')} so'm</b>
-🛠 Qo'shimcha xarajatlar: <b>${qosimcha.toLocaleString('uz-UZ')} so'm</b>
+📍 Masofa: <b>${km} km</b>
+⛽️ Taxminiy yoqilg'i (32L/100km): <b>${jamiLitr} litr (~${yoqilgiSumma.toLocaleString('uz-UZ')} so'm)</b>
+🛠 Yo'l xarajatlari va amortizatsiya: <b>kiritilgan</b>
 
 ───────────────
-🔻 <b>Sof tannarx (Zararsiz chegara):</b>
-👉 <b>${tanNarx.toLocaleString('uz-UZ')} so'm</b>
+💰 <b>Taxminiy tavsiya etiladigan reys narxi:</b>
+👉 <b>${taxminiyTavsiyaNarx.toLocaleString('uz-UZ')} so'm</b>
 
-💡 <b>Tavsiya etiladigan reys narxi (+15% foyda bilan):</b>
-👉 <b>${tavsiyaNarx.toLocaleString('uz-UZ')} so'm</b>
-
-<i>⚠️ Eslatma: Bu ma'lumot mos narx tanlash uchun tavsiya xarakteriga ega.</i>
+⚠️ <i>Ogohlantirish: Bu narx standart ko'rsatkichlar bo'yicha avtomatik hisoblangan va faqat taxminiy tavsiya xarakteriga ega. Biz bu narxning aniq yoki yakuniy bo'lishini kafolatlamaymiz.</i>
 `;
 
         ctx.reply(hisobot, { parse_mode: 'HTML', ...mainMenu });
@@ -249,7 +238,7 @@ const mainMenu = Markup.keyboard([
     ['💱 Valyuta kurslari']
 ]).resize();
 
-// 6. /start Buyrug'i
+// 6. /start
 bot.start(checkSubscription, (ctx) => {
     saveUser(ctx.from.id);
     ctx.reply(`👋 Assalomu alaykum, <b>${ctx.from.first_name}</b>!\n\nHumo Logistics raqamli dispetcheriga xush kelibsiz. Quyidagi menyudan o'zingizga kerakli bo'limni tanlang:`, {
@@ -258,8 +247,7 @@ bot.start(checkSubscription, (ctx) => {
     });
 });
 
-// 7. MENYU TUGMALARI HAKATLARI
-
+// 7. MENYU TUGMALARI
 bot.hears('📝 Zayavka qoldirish', checkSubscription, (ctx) => {
     const lastTime = cooldowns.get(ctx.from.id);
     if (lastTime && Date.now() - lastTime < COOLDOWN_TIME) {
@@ -351,7 +339,7 @@ bot.hears('🛃 Bojxona navbatlari', async (ctx) => {
     }
 });
 
-// 8. Boshqa Inline harakatlar
+// 8. Inline Boshqaruv
 bot.action('check_sub', async (ctx) => {
     try {
         const member = await ctx.telegram.getChatMember(process.env.CHANNEL_ID, ctx.from.id);
