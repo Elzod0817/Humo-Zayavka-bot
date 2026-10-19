@@ -1,12 +1,36 @@
 require('dotenv').config();
 const { Telegraf, session, Scenes, Markup } = require('telegraf');
 const fs = require('fs');
-const axios = require('axios'); // Valyuta uchun
+const axios = require('axios');
 
-// 1. Foydalanuvchilarni eslab qolish
+// 1. Fayllar va Baza sozlamalari
 const usersFile = './users.json';
+const infoFile = './info.json';
+
 if (!fs.existsSync(usersFile)) {
     fs.writeFileSync(usersFile, '[]');
+}
+
+// Yoqilg'i va Bojxona uchun boshlang'ich ma'lumotlar
+const defaultInfo = {
+    fuel: "⛽️ <b>Yoqilg'i narxlari (DT / Dizel):</b>\n\n🇺🇿 O'zbekiston: 13 800 so'm/l\n🇰🇿 Qozog'iston: 295 tenge/l\n🇷🇺 Rossiya: 68 rubl/l\n\n🕒 <i>Ma'lumotlar doimiy yangilanib boriladi.</i>",
+    customs: "🛃 <b>Bojxona postlaridagi navbatlar:</b>\n\n🟢 <b>Yallama (UZB-KAZ):</b> Erkin (5-10 mashina)\n🟡 <b>G'ishtko'prik (UZB-KAZ):</b> O'rta (20-30 mashina)\n🔴 <b>Tazjen (KAZ-UZB):</b> Tirband (50+ mashina)\n\n🕒 <i>Ma'lumotlar doimiy yangilanib boriladi.</i>"
+};
+
+if (!fs.existsSync(infoFile)) {
+    fs.writeFileSync(infoFile, JSON.stringify(defaultInfo, null, 2));
+}
+
+function getInfoData() {
+    try {
+        return JSON.parse(fs.readFileSync(infoFile));
+    } catch (e) {
+        return defaultInfo;
+    }
+}
+
+function saveInfoData(data) {
+    fs.writeFileSync(infoFile, JSON.stringify(data, null, 2));
 }
 
 function saveUser(userId) {
@@ -17,11 +41,10 @@ function saveUser(userId) {
     }
 }
 
-// 2. Anti-Spam tizimi xotirasi
+// 2. Anti-Spam va Majburiy a'zolik
 const cooldowns = new Map();
 const COOLDOWN_TIME = 30 * 60 * 1000;
 
-// 3. Majburiy a'zolikni tekshiruvchi funksiya
 async function checkSubscription(ctx, next) {
     if (ctx.from && process.env.CHANNEL_ID) {
         try {
@@ -51,25 +74,21 @@ Hurmatli mijoz, e'lon berish va tizimdan to'liq foydalanish uchun avval rasmiy k
     return next();
 }
 
-// 4. Ma'lumotlarni tekshirish uchun funksiya
 function checkInput(ctx, minLength = 4) {
     if (!ctx.message) return false;
-    
     if (ctx.message.text && ctx.message.text.startsWith('/')) {
         ctx.reply('❌ Amaliyot bekor qilindi. Qaytadan boshlash uchun /start bosing.', Markup.removeKeyboard());
         ctx.scene.leave();
         return 'leave';
     }
-    
     if (ctx.message.text && ctx.message.text.length < minLength) {
         ctx.reply(`⚠️ Iltimos, ma'lumotni to'liqroq yozing (kamida ${minLength} ta belgi bo'lishi kerak):`);
         return false;
     }
-    
     return true;
 }
 
-// 5. Zayavka yig'ish ssenariysi (TOZALANGAN)
+// 3. Zayavka Wizard Scene
 const zayavkaWizard = new Scenes.WizardScene(
     'ZAYAVKA_SCENE',
     (ctx) => {
@@ -164,20 +183,20 @@ ${xeshteglar}
     }
 );
 
-// 6. Botni ishga tushirish sozlamalari
+// 4. Bot va Stage sozlamalari
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const stage = new Scenes.Stage([zayavkaWizard]);
 
 bot.use(session());
 bot.use(stage.middleware());
 
-// Asosiy Menyu tugmalari
+// Asosiy Menyu
 const mainMenu = Markup.keyboard([
     ['📝 Zayavka qoldirish', '⛽️ Yoqilg\'i narxlari'],
     ['🛃 Bojxona navbatlari', '💱 Valyuta kurslari']
 ]).resize();
 
-// 7. Yangilangan /start buyrug'i
+// 5. /start buyrug'i
 bot.start(checkSubscription, (ctx) => {
     saveUser(ctx.from.id);
     ctx.reply(`👋 Assalomu alaykum, <b>${ctx.from.first_name}</b>!\n\nHumo Logistics raqamli dispetcheriga xush kelibsiz. Quyidagi menyudan o'zingizga kerakli bo'limni tanlang:`, {
@@ -186,7 +205,7 @@ bot.start(checkSubscription, (ctx) => {
     });
 });
 
-// 8. ASOSIY MENYU TUGMALARI ISHLASHI
+// 6. ASOSIY MENYU TUGMALARI
 bot.hears('📝 Zayavka qoldirish', checkSubscription, (ctx) => {
     const lastTime = cooldowns.get(ctx.from.id);
     if (lastTime && Date.now() - lastTime < COOLDOWN_TIME) {
@@ -220,10 +239,44 @@ bot.hears('💱 Valyuta kurslari', async (ctx) => {
     }
 });
 
-bot.hears('⛽️ Yoqilg\'i narxlari', (ctx) => ctx.reply("Tez kunda ishga tushadi..."));
-bot.hears('🛃 Bojxona navbatlari', (ctx) => ctx.reply("Tez kunda ishga tushadi..."));
+// ⛽️ Yoqilg'i narxlari tugmasi
+bot.hears('⛽️ Yoqilg\'i narxlari', (ctx) => {
+    const info = getInfoData();
+    ctx.reply(info.fuel, { parse_mode: 'HTML' });
+});
 
-// 9. Boshqa tugma va buyruqlar
+// 🛃 Bojxona navbatlari tugmasi
+bot.hears('🛃 Bojxona navbatlari', (ctx) => {
+    const info = getInfoData();
+    ctx.reply(info.customs, { parse_mode: 'HTML' });
+});
+
+// 7. ADMIN BUYRUQLARI (Ma'lumotlarni yangilash)
+bot.command('setfuel', (ctx) => {
+    if (ctx.from.id.toString() !== process.env.ADMIN_ID) return;
+    const text = ctx.message.text.replace('/setfuel', '').trim();
+    if (!text) {
+        return ctx.reply("⚠️ Yoqilg'i ma'lumotini yozmadingiz.\n\nMasalan:\n/setfuel ⛽️ <b>Yoqilg'i narxlari:</b>\n🇺🇿 UZB: 14 000 so'm\n🇰🇿 KAZ: 300 tenge");
+    }
+    const info = getInfoData();
+    info.fuel = text;
+    saveInfoData(info);
+    ctx.reply("✅ Yoqilg'i narxlari muvaffaqiyatli yangilandi!");
+});
+
+bot.command('setcustoms', (ctx) => {
+    if (ctx.from.id.toString() !== process.env.ADMIN_ID) return;
+    const text = ctx.message.text.replace('/setcustoms', '').trim();
+    if (!text) {
+        return ctx.reply("⚠️ Bojxona navbatlari ma'lumotini yozmadingiz.\n\nMasalan:\n/setcustoms 🛃 <b>Bojxona navbatlari:</b>\n🟢 Yallama: 10 mashina");
+    }
+    const info = getInfoData();
+    info.customs = text;
+    saveInfoData(info);
+    ctx.reply("✅ Bojxona navbatlari ma'lumotlari muvaffaqiyatli yangilandi!");
+});
+
+// 8. Boshqa harakatlar va Broadcast
 bot.action('check_sub', async (ctx) => {
     try {
         const member = await ctx.telegram.getChatMember(process.env.CHANNEL_ID, ctx.from.id);
@@ -233,7 +286,7 @@ bot.action('check_sub', async (ctx) => {
             saveUser(ctx.from.id);
             await ctx.answerCbQuery("✅ Rahmat!");
             await ctx.deleteMessage(); 
-            ctx.reply("Bosh menyu:", mainMenu); // A'zo bo'lgach menyuni beramiz
+            ctx.reply("Bosh menyu:", mainMenu);
         }
     } catch (error) {}
 });
