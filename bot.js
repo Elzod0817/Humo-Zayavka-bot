@@ -1,7 +1,9 @@
 require('dotenv').config();
 const { Telegraf, session, Scenes, Markup } = require('telegraf');
 const fs = require('fs');
+const axios = require('axios'); // Valyuta uchun
 
+// 1. Foydalanuvchilarni eslab qolish
 const usersFile = './users.json';
 if (!fs.existsSync(usersFile)) {
     fs.writeFileSync(usersFile, '[]');
@@ -15,9 +17,11 @@ function saveUser(userId) {
     }
 }
 
+// 2. Anti-Spam tizimi xotirasi
 const cooldowns = new Map();
 const COOLDOWN_TIME = 30 * 60 * 1000;
 
+// 3. Majburiy a'zolikni tekshiruvchi funksiya
 async function checkSubscription(ctx, next) {
     if (ctx.from && process.env.CHANNEL_ID) {
         try {
@@ -47,28 +51,16 @@ Hurmatli mijoz, e'lon berish va tizimdan to'liq foydalanish uchun avval rasmiy k
     return next();
 }
 
-// BU YANGI HIMOYA FUNKSIYASI: Buyruqlarni ushlab qoladi
-function isCommand(ctx) {
-    if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/')) {
-        ctx.reply('❌ Amaliyot bekor qilindi. Qaytadan boshlash uchun /start bosing.', Markup.removeKeyboard());
-        ctx.scene.leave();
-        return true;
-    }
-    return false;
-}
-
-// MA'LUMOTLARNI TEKSHIRISH UCHUN YANGI FUNKSIYA
+// 4. Ma'lumotlarni tekshirish uchun funksiya
 function checkInput(ctx, minLength = 4) {
     if (!ctx.message) return false;
     
-    // 1. Buyruqlarni tekshirish (/start, /cancel)
     if (ctx.message.text && ctx.message.text.startsWith('/')) {
         ctx.reply('❌ Amaliyot bekor qilindi. Qaytadan boshlash uchun /start bosing.', Markup.removeKeyboard());
         ctx.scene.leave();
         return 'leave';
     }
     
-    // 2. Matn uzunligini tekshirish
     if (ctx.message.text && ctx.message.text.length < minLength) {
         ctx.reply(`⚠️ Iltimos, ma'lumotni to'liqroq yozing (kamida ${minLength} ta belgi bo'lishi kerak):`);
         return false;
@@ -77,31 +69,26 @@ function checkInput(ctx, minLength = 4) {
     return true;
 }
 
+// 5. Zayavka yig'ish ssenariysi (TOZALANGAN)
 const zayavkaWizard = new Scenes.WizardScene(
     'ZAYAVKA_SCENE',
-    // 1-qadam: Toifa
     (ctx) => {
         ctx.reply('Assalomu alaykum! E\'lon berish uchun toifani tanlang:',
             Markup.keyboard([['📦 Yuk bor', '🚚 Mashina bor']]).resize().oneTime()
         );
         return ctx.wizard.next();
     },
-    // 2-qadam: Yo'nalish
     (ctx) => {
-        const status = checkInput(ctx, 5); // Kamida 5 ta belgi kutiladi
+        const status = checkInput(ctx, 5);
         if (status === 'leave') return;
-        
-        // Tayyor tugmalardan tashqari narsa yozsa qabul qilmaslik
         if (!status || (ctx.message.text !== '📦 Yuk bor' && ctx.message.text !== '🚚 Mashina bor')) {
             ctx.reply("⚠️ Iltimos, pastdagi tayyor tugmalardan birini tanlang!");
-            return; // Shu qadamda qoladi va keyingisiga o'tkazmaydi
+            return;
         }
-        
         ctx.session.tur = ctx.message.text;
         ctx.reply('📍 Qayerdan - Qayerga boriladi?\n(Masalan: Toshkent - Samarqand)', Markup.removeKeyboard());
         return ctx.wizard.next();
     },
-    // 3-qadam: Ma'lumot
     (ctx) => {
         const status = checkInput(ctx, 5); 
         if (status === 'leave') return;
@@ -114,7 +101,6 @@ const zayavkaWizard = new Scenes.WizardScene(
         ctx.reply(savol);
         return ctx.wizard.next();
     },
-    // 4-qadam: Sana va Narx
     (ctx) => {
         const status = checkInput(ctx, 5);
         if (status === 'leave') return;
@@ -124,7 +110,6 @@ const zayavkaWizard = new Scenes.WizardScene(
         ctx.reply('🗓 Sana va kutilayotgan narxni yozing:\n(Masalan: 25-oktabr, 1500$)');
         return ctx.wizard.next();
     },
-    // 5-qadam: Telefon
     (ctx) => {
         const status = checkInput(ctx, 4);
         if (status === 'leave') return;
@@ -136,12 +121,11 @@ const zayavkaWizard = new Scenes.WizardScene(
         );
         return ctx.wizard.next();
     },
-    // 6-qadam: Guruhga e'lon joylash
     async (ctx) => {
         if (ctx.message.contact) {
             ctx.session.telefon = ctx.message.contact.phone_number;
         } else {
-            const status = checkInput(ctx, 7); // Qo'lda yozilganda kamida 7 belgi (masalan: +998...)
+            const status = checkInput(ctx, 7);
             if (status === 'leave') return;
             if (!status) return;
             ctx.session.telefon = ctx.message.text;
@@ -171,8 +155,6 @@ ${xeshteglar}
         try {
             await ctx.telegram.sendMessage(process.env.GROUP_ID, zayavkaMatni, { parse_mode: 'HTML', ...inlineKeyboard });
             ctx.reply('✅ Zayavka muvaffaqiyatli qabul qilindi va guruhga joylandi! Ishingiz bitgach, guruhdagi e\'lon tagidan "Zayavkani yopish" tugmasini bosishni unutmang.', Markup.removeKeyboard());
-            
-            // Anti-Spam vaqtini o'rnatish
             cooldowns.set(ctx.from.id, Date.now());
         } catch (error) {
             ctx.reply('❌ Guruhga jo\'natishda xatolik yuz berdi.');
@@ -182,45 +164,78 @@ ${xeshteglar}
     }
 );
 
+// 6. Botni ishga tushirish sozlamalari
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const stage = new Scenes.Stage([zayavkaWizard]);
 
 bot.use(session());
 bot.use(stage.middleware());
 
+// Asosiy Menyu tugmalari
+const mainMenu = Markup.keyboard([
+    ['📝 Zayavka qoldirish', '⛽️ Yoqilg\'i narxlari'],
+    ['🛃 Bojxona navbatlari', '💱 Valyuta kurslari']
+]).resize();
+
+// 7. Yangilangan /start buyrug'i
 bot.start(checkSubscription, (ctx) => {
     saveUser(ctx.from.id);
+    ctx.reply(`👋 Assalomu alaykum, <b>${ctx.from.first_name}</b>!\n\nHumo Logistics raqamli dispetcheriga xush kelibsiz. Quyidagi menyudan o'zingizga kerakli bo'limni tanlang:`, {
+        parse_mode: 'HTML',
+        ...mainMenu
+    });
+});
 
+// 8. ASOSIY MENYU TUGMALARI ISHLASHI
+bot.hears('📝 Zayavka qoldirish', checkSubscription, (ctx) => {
     const lastTime = cooldowns.get(ctx.from.id);
     if (lastTime && Date.now() - lastTime < COOLDOWN_TIME) {
         const qolganVaqt = Math.ceil((COOLDOWN_TIME - (Date.now() - lastTime)) / 60000);
         return ctx.reply(`⏳ <b>Anti-Spam tizimi:</b> Iltimos, keyingi e'lonni berish uchun ${qolganVaqt} daqiqa kuting.`, { parse_mode: 'HTML' });
     }
-
     ctx.scene.enter('ZAYAVKA_SCENE');
 });
 
+bot.hears('💱 Valyuta kurslari', async (ctx) => {
+    try {
+        const waitingMsg = await ctx.reply("⏳ Kurslar yuklanmoqda...");
+        const response = await axios.get('https://cbu.uz/uz/arkhiv-kursov-valyut/json/');
+        const data = response.data;
+        
+        const usd = data.find(c => c.Ccy === 'USD');
+        const rub = data.find(c => c.Ccy === 'RUB');
+        const eur = data.find(c => c.Ccy === 'EUR');
+        const kzt = data.find(c => c.Ccy === 'KZT');
+        
+        const text = `💱 <b>O'zbekiston Markaziy Banki kurslari:</b>\n\n` +
+                     `🇺🇸 1 USD = <b>${usd.Rate}</b> so'm\n` +
+                     `🇷🇺 1 RUB = <b>${rub.Rate}</b> so'm\n` +
+                     `🇪🇺 1 EUR = <b>${eur.Rate}</b> so'm\n` +
+                     `🇰🇿 1 KZT = <b>${kzt.Rate}</b> so'm\n\n` +
+                     `🕒 <i>Sana: ${usd.Date}</i>`;
+                     
+        await ctx.telegram.editMessageText(ctx.chat.id, waitingMsg.message_id, null, text, { parse_mode: 'HTML' });
+    } catch (error) {
+        ctx.reply("⚠️ Kurslarni yuklashda xatolik yuz berdi. Keyinroq urinib ko'ring.");
+    }
+});
+
+bot.hears('⛽️ Yoqilg\'i narxlari', (ctx) => ctx.reply("Tez kunda ishga tushadi..."));
+bot.hears('🛃 Bojxona navbatlari', (ctx) => ctx.reply("Tez kunda ishga tushadi..."));
+
+// 9. Boshqa tugma va buyruqlar
 bot.action('check_sub', async (ctx) => {
     try {
         const member = await ctx.telegram.getChatMember(process.env.CHANNEL_ID, ctx.from.id);
         if (member.status === 'left' || member.status === 'kicked') {
-            await ctx.answerCbQuery("⚠️ Hali kanalga a'zo bo'lmagansiz. Iltimos, avval kanalga qo'shiling!", { show_alert: true });
+            await ctx.answerCbQuery("⚠️ Hali kanalga a'zo bo'lmagansiz!", { show_alert: true });
         } else {
             saveUser(ctx.from.id);
-            const lastTime = cooldowns.get(ctx.from.id);
-            if (lastTime && Date.now() - lastTime < COOLDOWN_TIME) {
-                const qolganVaqt = Math.ceil((COOLDOWN_TIME - (Date.now() - lastTime)) / 60000);
-                await ctx.answerCbQuery(`⏳ Keyingi e'lon uchun ${qolganVaqt} daqiqa kuting.`, { show_alert: true });
-                return ctx.deleteMessage();
-            }
-
-            await ctx.answerCbQuery("✅ A'zo bo'lganingiz uchun rahmat!");
+            await ctx.answerCbQuery("✅ Rahmat!");
             await ctx.deleteMessage(); 
-            ctx.scene.enter('ZAYAVKA_SCENE');
+            ctx.reply("Bosh menyu:", mainMenu); // A'zo bo'lgach menyuni beramiz
         }
-    } catch (error) {
-        await ctx.answerCbQuery("Xatolik yuz berdi. Bot kanalda adminligini tekshiring.");
-    }
+    } catch (error) {}
 });
 
 bot.action(/yopish_(.+)/, async (ctx) => {
@@ -230,13 +245,10 @@ bot.action(/yopish_(.+)/, async (ctx) => {
     if (eCreatorId === clickerId || clickerId === process.env.ADMIN_ID) {
         let yopilganMatn = ctx.callbackQuery.message.text || 'E\'lon';
         yopilganMatn = `<s>${yopilganMatn}</s>\n\n✅ <b>BU ZAYAVKA YOPILDI VA O'Z KUCHINI YO'QOTDI</b>`;
-        
         try {
             await ctx.editMessageText(yopilganMatn, { parse_mode: 'HTML', reply_markup: { inline_keyboard: [] } });
             await ctx.answerCbQuery("Zayavka yopildi!");
-        } catch (error) {
-            await ctx.answerCbQuery("Xatolik yuz berdi.");
-        }
+        } catch (error) {}
     } else {
         await ctx.answerCbQuery("⚠️ Bu e'lonni faqat uning egasi yopa oladi!", { show_alert: true });
     }
@@ -244,25 +256,22 @@ bot.action(/yopish_(.+)/, async (ctx) => {
 
 bot.command('broadcast', async (ctx) => {
     if (ctx.from.id.toString() !== process.env.ADMIN_ID) return;
-
     const message = ctx.message.text.replace('/broadcast', '').trim();
-    if (!message) return ctx.reply("⚠️ Xabar yozishni unutingiz! Masalan: /broadcast Hammaga salom!");
-
+    if (!message) return ctx.reply("⚠️ Xabar yozishni unutingiz!");
     const users = JSON.parse(fs.readFileSync(usersFile));
     let sentCount = 0;
-
     for (let userId of users) {
         try {
-            await ctx.telegram.sendMessage(userId, `📢 <b>Humo Logistics xabarnomasi:</b>\n\n${message}`, { parse_mode: 'HTML' });
+            await ctx.telegram.sendMessage(userId, `📢 <b>Humo Logistics:</b>\n\n${message}`, { parse_mode: 'HTML' });
             sentCount++;
         } catch (e) {} 
     }
-    ctx.reply(`✅ Xabar muvaffaqiyatli ${sentCount} ta foydalanuvchiga yuborildi!`);
+    ctx.reply(`✅ Xabar muvaffaqiyatli ${sentCount} kishiga yuborildi!`);
 });
 
 bot.launch().then(() => {
-    console.log('✅ Humo Logistics Dispatcher Bot to\'liq ishga tushdi!');
+    console.log('✅ Humo Logistics Bot to\'liq ishga tushdi!');
 });
 
 const http = require('http');
-http.createServer((req, res) => res.end('Zayavka Bot is running')).listen(process.env.PORT || 8080);
+http.createServer((req, res) => res.end('Bot is running')).listen(process.env.PORT || 8080);
