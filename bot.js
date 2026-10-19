@@ -159,20 +159,97 @@ ${xeshteglar}
     }
 );
 
-// 4. Bot Sozlamalari
+// 4. Kalkulyator Wizard Scene (XARAJATLAR UCHUN)
+const calcWizard = new Scenes.WizardScene(
+    'CALC_SCENE',
+    (ctx) => {
+        ctx.reply('🧮 <b>Reys xarajatlarini hisoblash</b>\n\nYo\'nalish masofasini kiriting (km da):\n<i>(Masalan: 350)</i>', { parse_mode: 'HTML' });
+        return ctx.wizard.next();
+    },
+    (ctx) => {
+        const km = parseFloat(ctx.message.text);
+        if (isNaN(km) || km <= 0) {
+            ctx.reply("⚠️ Iltimos, faqat musbat raqam kiriting (Masalan: 350):");
+            return;
+        }
+        ctx.session.calcKm = km;
+        ctx.reply('⛽️ 100 km masofaga fura qancha dizel sarflaydi (litr)?\n<i>(Masalan: 32)</i>', { parse_mode: 'HTML' });
+        return ctx.wizard.next();
+    },
+    (ctx) => {
+        const sarf = parseFloat(ctx.message.text);
+        if (isNaN(sarf) || sarf <= 0) {
+            ctx.reply("⚠️ Iltimos, faqat musbat raqam kiriting (Masalan: 32):");
+            return;
+        }
+        ctx.session.calcSarf = sarf;
+        ctx.reply('💰 1 litr dizel narxini kiriting (so\'mda):\n<i>(Masalan: 13800)</i>', { parse_mode: 'HTML' });
+        return ctx.wizard.next();
+    },
+    (ctx) => {
+        const narx = parseFloat(ctx.message.text);
+        if (isNaN(narx) || narx <= 0) {
+            ctx.reply("⚠️ Iltimos, faqat musbat raqam kiriting (Masalan: 13800):");
+            return;
+        }
+        ctx.session.calcDizelNarx = narx;
+        ctx.reply('🛠 Yo\'l to\'lovlari, bojxona va boshqa qo\'shimcha xarajatlar summasini kiriting (so\'mda):\n<i>(Yo\'q bo\'lsa 0 deb yozing)</i>', { parse_mode: 'HTML' });
+        return ctx.wizard.next();
+    },
+    (ctx) => {
+        const qosimcha = parseFloat(ctx.message.text);
+        if (isNaN(qosimcha) || qosimcha < 0) {
+            ctx.reply("⚠️ Iltimos, nol yoki musbat raqam kiriting:");
+            return;
+        }
+        
+        const km = ctx.session.calcKm;
+        const sarf = ctx.session.calcSarf;
+        const dizelNarx = ctx.session.calcDizelNarx;
+
+        const jamiLitr = Math.round((km / 100) * sarf);
+        const yoqilgiSumma = Math.round(jamiLitr * dizelNarx);
+        const tanNarx = yoqilgiSumma + qosimcha;
+        const tavsiyaNarx = Math.round(tanNarx * 1.15); // +15% marja
+
+        const hisobot = `
+📊 <b>REYS XARAJATLARI HISOBOTI</b>
+
+📍 Yo'nalish masofasi: <b>${km} km</b>
+⛽️ Jami yoqilg'i hajm: <b>${jamiLitr} litr</b>
+💰 Yoqilg'i xarajati: <b>${yoqilgiSumma.toLocaleString('uz-UZ')} so'm</b>
+🛠 Qo'shimcha xarajatlar: <b>${qosimcha.toLocaleString('uz-UZ')} so'm</b>
+
+───────────────
+🔻 <b>Sof tannarx (Zararsiz chegara):</b>
+👉 <b>${tanNarx.toLocaleString('uz-UZ')} so'm</b>
+
+💡 <b>Tavsiya etiladigan reys narxi (+15% foyda bilan):</b>
+👉 <b>${tavsiyaNarx.toLocaleString('uz-UZ')} so'm</b>
+
+<i>⚠️ Eslatma: Bu ma'lumot mos narx tanlash uchun tavsiya xarakteriga ega.</i>
+`;
+
+        ctx.reply(hisobot, { parse_mode: 'HTML', ...mainMenu });
+        return ctx.scene.leave();
+    }
+);
+
+// 5. Bot va Stage Sozlamalari
 const bot = new Telegraf(process.env.BOT_TOKEN);
-const stage = new Scenes.Stage([zayavkaWizard]);
+const stage = new Scenes.Stage([zayavkaWizard, calcWizard]);
 
 bot.use(session());
 bot.use(stage.middleware());
 
 // Asosiy Menyu
 const mainMenu = Markup.keyboard([
-    ['📝 Zayavka qoldirish', '⛽️ Yoqilg\'i narxlari'],
-    ['🛃 Bojxona navbatlari', '💱 Valyuta kurslari']
+    ['📝 Zayavka qoldirish', '🧮 Xarajat kalkulyatori'],
+    ['⛽️ Yoqilg\'i narxlari', '🛃 Bojxona navbatlari'],
+    ['💱 Valyuta kurslari']
 ]).resize();
 
-// 5. /start
+// 6. /start Buyrug'i
 bot.start(checkSubscription, (ctx) => {
     saveUser(ctx.from.id);
     ctx.reply(`👋 Assalomu alaykum, <b>${ctx.from.first_name}</b>!\n\nHumo Logistics raqamli dispetcheriga xush kelibsiz. Quyidagi menyudan o'zingizga kerakli bo'limni tanlang:`, {
@@ -181,9 +258,8 @@ bot.start(checkSubscription, (ctx) => {
     });
 });
 
-// 6. AVTOMATLASHTIRILGAN TUGMALAR
+// 7. MENYU TUGMALARI HAKATLARI
 
-// 📝 Zayavka qoldirish
 bot.hears('📝 Zayavka qoldirish', checkSubscription, (ctx) => {
     const lastTime = cooldowns.get(ctx.from.id);
     if (lastTime && Date.now() - lastTime < COOLDOWN_TIME) {
@@ -193,7 +269,10 @@ bot.hears('📝 Zayavka qoldirish', checkSubscription, (ctx) => {
     ctx.scene.enter('ZAYAVKA_SCENE');
 });
 
-// 💱 Valyuta kurslari (Avtomatik Markaziy Bank API)
+bot.hears('🧮 Xarajat kalkulyatori', (ctx) => {
+    ctx.scene.enter('CALC_SCENE');
+});
+
 bot.hears('💱 Valyuta kurslari', async (ctx) => {
     try {
         const waitingMsg = await ctx.reply("⏳ Markaziy bank ma'lumotlari yuklanmoqda...");
@@ -218,19 +297,16 @@ bot.hears('💱 Valyuta kurslari', async (ctx) => {
     }
 });
 
-// ⛽️ Yoqilg'i narxlari (Avtomatik Bozor Indeksi)
 bot.hears('⛽️ Yoqilg\'i narxlari', async (ctx) => {
     try {
         const waitingMsg = await ctx.reply("⏳ Yoqilg'i birja narxlari tekshirilmoqda...");
-        
-        // Valyuta kursidan foydalanib xalqaro narxlarni avtomat hisoblash
         const cbRes = await axios.get('https://cbu.uz/uz/arkhiv-kursov-valyut/json/');
         const kztRate = parseFloat(cbRes.data.find(c => c.Ccy === 'KZT').Rate);
         const rubRate = parseFloat(cbRes.data.find(c => c.Ccy === 'RUB').Rate);
 
         const uzbDT = "13 500 - 14 200 so'm";
-        const kazDTKzt = 295; // Qozog'iston davlat chegaralangan narxi (KZT)
-        const rusDTRub = 68;  // Rossiya o'rtacha birja narxi (RUB)
+        const kazDTKzt = 295;
+        const rusDTRub = 68;
 
         const kazInSom = Math.round(kazDTKzt * kztRate);
         const rusInSom = Math.round(rusDTRub * rubRate);
@@ -247,14 +323,11 @@ bot.hears('⛽️ Yoqilg\'i narxlari', async (ctx) => {
     }
 });
 
-// 🛃 Bojxona navbatlari (Avtomatik Monitoring Tizimi)
 bot.hears('🛃 Bojxona navbatlari', async (ctx) => {
     try {
         const waitingMsg = await ctx.reply("⏳ Bojxona postlaridagi tirbandlik darajasi aniqlanmoqda...");
-        
-        // Hozirgi soat va ish kuniga qarab navbat yuklamasini dinamik aniqlash
         const now = new Date();
-        const hour = now.getUTCHours() + 5; // Toshkent vaqti (UTC+5)
+        const hour = now.getUTCHours() + 5;
 
         let statusYallama = "🟢 Erkin (5-15 mashina)";
         let statusGisht = "🟡 O'rta (20-35 mashina)";
@@ -278,7 +351,7 @@ bot.hears('🛃 Bojxona navbatlari', async (ctx) => {
     }
 });
 
-// 7. A'zolik va Zayavkani yopish
+// 8. Boshqa Inline harakatlar
 bot.action('check_sub', async (ctx) => {
     try {
         const member = await ctx.telegram.getChatMember(process.env.CHANNEL_ID, ctx.from.id);
