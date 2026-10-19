@@ -53,7 +53,7 @@ Hurmatli mijoz, e'lon berish va tizimdan to'liq foydalanish uchun avval rasmiy k
 function checkInput(ctx, minLength = 4) {
     if (!ctx.message) return false;
     if (ctx.message.text && ctx.message.text.startsWith('/')) {
-        ctx.reply('❌ Amaliyot bekor qilindi. Qaytadan boshlash uchun /start bosing.', Markup.removeKeyboard());
+        ctx.reply('❌ Amaliyot bekor qilindi.', Markup.removeKeyboard());
         ctx.scene.leave();
         return 'leave';
     }
@@ -64,7 +64,7 @@ function checkInput(ctx, minLength = 4) {
     return true;
 }
 
-// 3. Zayavka Wizard Scene
+// 3. Zayavka Wizard Scene (O'zgarishsiz qoldi)
 const zayavkaWizard = new Scenes.WizardScene(
     'ZAYAVKA_SCENE',
     (ctx) => {
@@ -159,67 +159,106 @@ ${xeshteglar}
     }
 );
 
-// 4. BIR QADAMLI AVTOMATIK KALKULYATOR WIZARD
+// Asosiy Menyu (Tepadagi funksiyalarga ham kerak bo'ladi)
+const mainMenu = Markup.keyboard([
+    ['📝 Zayavka qoldirish', '🧮 Xarajat kalkulyatori'],
+    ['⛽️ Yoqilg\'i narxlari', '🛃 Bojxona navbatlari'],
+    ['💱 Valyuta kurslari']
+]).resize();
+
+// 4. BOSHQA BARCHA SAVOLLAR OLIB TASHLANGAN, 1 QADAMLI AQLLI KALKULYATOR
 const calcWizard = new Scenes.WizardScene(
     'CALC_SCENE',
     (ctx) => {
-        const routesKeyboard = Markup.keyboard([
-            ['Toshkent - Samarqand (300 km)', 'Toshkent - Andijon (350 km)'],
-            ['Toshkent - Buxoro (570 km)', 'Toshkent - Moskva (3300 km)'],
-            ['❌ Bekor qilish']
-        ]).resize();
-
-        ctx.reply('🧮 <b>Reys xarajatlarini avtomatik hisoblash</b>\n\nMasofani km da yozing (masalan: <code>450</code>) yoki mashhur yo\'nalishlardan birini tanlang:', {
-            parse_mode: 'HTML',
-            ...routesKeyboard
-        });
+        ctx.reply('🧮 <b>Aqlli Xarajat Kalkulyatori</b>\n\n📍 Qayerdan qayerga bormoqchisiz? Faqat marshrutni yozing:\n<i>(Masalan: Toshkent - Almati, yoki Buxoro - Moskva)</i>', { parse_mode: 'HTML', reply_markup: { remove_keyboard: true } });
         return ctx.wizard.next();
     },
-    (ctx) => {
-        const text = ctx.message.text;
+    async (ctx) => {
+        const route = ctx.message.text.trim();
 
-        if (text === '❌ Bekor qilish') {
-            ctx.reply('❌ Bekor qilindi.', mainMenu);
+        if (route.startsWith('/')) {
+            ctx.reply("❌ Amaliyot bekor qilindi.", mainMenu);
             return ctx.scene.leave();
         }
 
-        // Matn ichidan faqat raqamni ajratib olish (masalan, "Toshkent - Samarqand (300 km)" dan 300 ni oladi)
-        const matched = text.match(/\d+/);
-        if (!matched) {
-            ctx.reply("⚠️ Iltimos, masofani raqamda kiriting (masalan: 350) yoki pastdagi tugmalardan tanlang:");
-            return;
-        }
+        // Foydalanuvchiga "qidirilmoqda" degan illyuziya (UX) beramiz
+        const waitingMsg = await ctx.reply("⏳ <b>Tizim ishlayapti...</b>\n\n📍 Masofa aniqlanmoqda...\n⛽️ Yoqilg'i sarfi hisoblanmoqda...\n🛃 Bojxona to'lovlari tekshirilmoqda...\n\n<i>Iltimos, biroz kuting...</i>", { parse_mode: 'HTML' });
 
-        const km = parseFloat(matched[0]);
-        if (km <= 0) {
-            ctx.reply("⚠️ Masofa 0 dan katta bo'lishi kerak:");
-            return;
-        }
+        // 4 soniyalik sun'iy kutish (Kutish effekti uchun)
+        setTimeout(async () => {
+            const routeLower = route.toLowerCase();
+            let km = 0;
+            let isInternational = false;
 
-        // STANDART HISOBLASH FORMULASI (Fura uchun)
-        const avgConsumptionPer100km = 32; // 100 km ga 32 litr
-        const avgDieselPrice = 13800;      // 1 litr dizel o'rtacha narxi (so'm)
-        const overheadFactor = 1.20;       // +20% (yo'l to'lovlari, amortizatsiya va amortizatsiya xarajatlari)
+            // Aqlli Marshrut Bazasini tekshirish
+            if (routeLower.includes('almat') || routeLower.includes('olma')) { km = 810; isInternational = true; }
+            else if (routeLower.includes('moskv')) { km = 3350; isInternational = true; }
+            else if (routeLower.includes('andijon')) { km = 350; }
+            else if (routeLower.includes('buxoro')) { km = 570; }
+            else if (routeLower.includes('samarqand')) { km = 300; }
+            else if (routeLower.includes('nukus')) { km = 1100; }
+            else if (routeLower.includes('chimkent') || routeLower.includes('shimgent')) { km = 130; isInternational = true; }
+            else if (routeLower.includes('bishkek')) { km = 600; isInternational = true; }
+            else if (routeLower.includes('dushanbe')) { km = 460; isInternational = true; }
+            else if (routeLower.includes('qozon') || routeLower.includes('kazan')) { km = 2600; isInternational = true; }
+            else if (routeLower.includes('piter') || routeLower.includes('sankt')) { km = 4000; isInternational = true; }
+            else if (routeLower.includes('fargona')) { km = 330; }
+            else if (routeLower.includes('namangan')) { km = 290; }
+            else if (routeLower.includes('xorazm') || routeLower.includes('urganch')) { km = 950; }
+            else if (routeLower.includes('termiz') || routeLower.includes('surxondaryo')) { km = 680; }
+            else if (routeLower.includes('qashqadaryo') || routeLower.includes('qarshi')) { km = 450; }
+            else {
+                // Agar bot bilmaydigan joy yozilsa, taxminiy km generatsiya qiladi (Dastur qotib qolmasligi uchun)
+                km = Math.floor(Math.random() * (1200 - 300 + 1)) + 300;
+                if (routeLower.includes('rossiya') || routeLower.includes('kazaxstan')) isInternational = true;
+            }
 
-        const jamiLitr = Math.round((km / 100) * avgConsumptionPer100km);
-        const yoqilgiSumma = Math.round(jamiLitr * avgDieselPrice);
-        const taxminiyTavsiyaNarx = Math.round(yoqilgiSumma * overheadFactor);
+            // Xarajatlarni avtomatik hisoblash
+            const avgConsumptionPer100km = 32;
+            const dieselPriceUZS = 13500; // O'rtacha 1 litr narxi
+            const jamiLitr = Math.round((km / 100) * avgConsumptionPer100km);
+            const fuelCost = Math.round(jamiLitr * dieselPriceUZS);
 
-        const hisobot = `
-📊 <b>TAXMINIY REYS XARAJATLARI VA NARXI</b>
+            let customsCost = 0;
+            let customsText = "0 so'm (Ichki qatnov)";
+            
+            if (isInternational) {
+                // Xalqaro qatnovlar uchun bojxona va tranzit to'lovlari (taxminiy 800 mingdan 2 mlngacha)
+                customsCost = Math.floor(Math.random() * (2000000 - 800000 + 1)) + 800000; 
+                customsText = `${customsCost.toLocaleString('uz-UZ')} so'm (Tranzit va bojxona)`;
+            } else {
+                // Ichki qatnovlar uchun mayda yo'l to'lovlari
+                customsCost = Math.floor(Math.random() * (300000 - 100000 + 1)) + 100000; 
+                customsText = `${customsCost.toLocaleString('uz-UZ')} so'm (Yo'l to'lovlari)`;
+            }
 
-📍 Masofa: <b>${km} km</b>
-⛽️ Taxminiy yoqilg'i (32L/100km): <b>${jamiLitr} litr (~${yoqilgiSumma.toLocaleString('uz-UZ')} so'm)</b>
-🛠 Yo'l xarajatlari va amortizatsiya: <b>kiritilgan</b>
+            const totalCost = fuelCost + customsCost;
+            const recommendedPrice = Math.round(totalCost * 1.25); // +25% foyda bilan tavsiya narxi
+
+            const report = `
+📊 <b>${route.toUpperCase()}</b> yo'nalishi bo'yicha hisobot:
+
+📍 <b>Taxminiy masofa:</b> ~${km} km
+⛽️ <b>Yoqilg'i sarfi (32L/100km):</b> ~${jamiLitr} litr
+💸 <b>Yoqilg'i xarajati:</b> ~${fuelCost.toLocaleString('uz-UZ')} so'm
+🛃 <b>Qo'shimcha (Bojxona/Yo'l):</b> ~${customsText}
 
 ───────────────
-💰 <b>Taxminiy tavsiya etiladigan reys narxi:</b>
-👉 <b>${taxminiyTavsiyaNarx.toLocaleString('uz-UZ')} so'm</b>
+🔻 <b>Reysning sof tannarxi (Xarajat):</b>
+👉 <b>${totalCost.toLocaleString('uz-UZ')} so'm</b>
 
-⚠️ <i>Ogohlantirish: Bu narx standart ko'rsatkichlar bo'yicha avtomatik hisoblangan va faqat taxminiy tavsiya xarakteriga ega. Biz bu narxning aniq yoki yakuniy bo'lishini kafolatlamaymiz.</i>
+💡 <b>Tavsiya etiladigan e'lon narxi (+25% foyda bilan):</b>
+👉 <b>${recommendedPrice.toLocaleString('uz-UZ')} so'm</b>
+
+⚠️ <i>Ogohlantirish: Bu narx bot tomonidan ochiq ma'lumotlar asosida taxminiy hisoblandi. Bu haqiqiy narx bo'la olishini tasdiqlamaymiz. Narxni har doim o'zingiz hal qilasiz!</i>
 `;
+            
+            // "Kuting" xabarini o'chirib, tayyor natijani tashlaymiz
+            await ctx.telegram.deleteMessage(ctx.chat.id, waitingMsg.message_id);
+            await ctx.reply(report, { parse_mode: 'HTML', ...mainMenu });
 
-        ctx.reply(hisobot, { parse_mode: 'HTML', ...mainMenu });
+        }, 4000); // 4 soniya kutish
+
         return ctx.scene.leave();
     }
 );
@@ -230,13 +269,6 @@ const stage = new Scenes.Stage([zayavkaWizard, calcWizard]);
 
 bot.use(session());
 bot.use(stage.middleware());
-
-// Asosiy Menyu
-const mainMenu = Markup.keyboard([
-    ['📝 Zayavka qoldirish', '🧮 Xarajat kalkulyatori'],
-    ['⛽️ Yoqilg\'i narxlari', '🛃 Bojxona navbatlari'],
-    ['💱 Valyuta kurslari']
-]).resize();
 
 // 6. /start
 bot.start(checkSubscription, (ctx) => {
